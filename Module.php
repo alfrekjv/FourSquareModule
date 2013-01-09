@@ -40,9 +40,10 @@ class Module extends BaseModule
         return array('factories' => array(
 
             'foursquare.handler' => function($sm) {
-                $config  = $sm->get('config');
+
                 $handler = new \FourSquareModule\Classes\ApiHandler();
-                $cache   = new \Doctrine\Common\Cache\ArrayCache();
+                $cache   = new \Doctrine\Common\Cache\ApcCache();
+                $config  = $sm->get('config');
 
                 $handler->setSecret($config['foursquare']['secret']);
                 $handler->setKey($config['foursquare']['key']);

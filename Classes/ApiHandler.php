@@ -12,7 +12,14 @@ class ApiHandler
     /**
      * @var string Foursquare's Categories ID.
      */
-    private $_categories = "4bf58dd8d48988d14c941735 4bf58dd8d48988d14a941735 4bf58dd8d48988d1d3941735 4f04af1f2fb6e1c99f3db0bb 4bf58dd8d48988d149941735 4bf58dd8d48988d151941735";
+    protected $categories = array(
+        '4bf58dd8d48988d14c941735',
+        '4bf58dd8d48988d14a941735',
+        '4bf58dd8d48988d1d3941735',
+        '4f04af1f2fb6e1c99f3db0bb',
+        '4bf58dd8d48988d149941735',
+        '4bf58dd8d48988d151941735'
+    );
 
     public function __construct() { }
 
@@ -72,57 +79,67 @@ class ApiHandler
      */
     public function getVenues($lat, $lng)
     {
-
         $cache    = $this->getCache();
-        $cacheKey = 'foursquare-venues-for-lat-' . $lat . '-and-long-' . $lng;
+        $cacheKey = 'venues-lat-' . $lat . '-lng-' . $lng;
 
-        // Verify if we have data in the Cache.
-        if (!$cache->contains($cacheKey)) {
-
-            $cat    = str_replace(" ", ',', $this->_categories);
-            $url    = "https://api.foursquare.com/v2/venues/search?v=20120610&ll={$lat},{$lng}&intent=browse&radius=9500&limit=100&categoryId=" . $cat . "&client_id=" . $this->key . "&client_secret=" . $this->secret;
-            $result = file_get_contents($url); // do the call.
-            $venues = json_decode($result, true);
-            $spots  = array('venues' => array());
-
-            if ($venues['meta']['code'] == 200) {
-                foreach ($venues['response'] as $venues) {
-                    $i = 0;
-                    foreach ($venues as $venue) {
-
-                        // Check if the joint has more than 10 check-ins ever.
-                        if ($venue['stats']['checkinsCount'] > 10) {
-                            $spots['venues'][$i]['id']          = isset($venue['id']) ? $venue['id'] : '';
-                            $spots['venues'][$i]['name']        = isset($venue['name']) ? $venue['name'] : '';
-                            $spots['venues'][$i]['latitude']    = isset($venue['location']['lat']) ? $venue['location']['lat'] : '';
-                            $spots['venues'][$i]['longitude']   = isset($venue['location']['lng']) ? $venue['location']['lng'] : '';
-                            $spots['venues'][$i]['address']     = isset($venue['location']['address']) ? $venue['location']['address'] : '';
-                            $spots['venues'][$i]['crossStreet'] = isset($venue['location']['crossStreet']) ? $venue['location']['crossStreet'] : '';
-                            $spots['venues'][$i]['city']        = isset($venue['location']['city']) ? $venue['location']['city'] : '';
-                            $spots['venues'][$i]['state']       = isset($venue['location']['state']) ? $venue['location']['state'] : '';
-                            $spots['venues'][$i]['postalCode']  = isset($venue['location']['postalCode']) ? $venue['location']['postalCode'] : '';
-                            $spots['venues'][$i]['country']     = isset($venue['location']['country']) ? $venue['location']['country'] : '';
-                            $spots['venues'][$i]['url']         = isset($venue['url']) ? $venue['url'] : '';
-                            $spots['venues'][$i]['people']      = isset($venue['hereNow']['count']) ? $venue['hereNow']['count'] : '';
-                            $spots['venues'][$i]['categories']  = $venue['categories'];
-                            $spots['venues'][$i]['contact']     = $venue['contact'];
-                            $spots['venues'][$i]['stats']       = $venue['stats'];
-
-                            $i++;
-                        }
-                    }
-                }
-            }
-
-            // Store the array in the Cache.
-            $cache->save($cacheKey, $spots, 600);
-        } else {
-            // Fetch the array in case we already had it in the cache.
-            $spots = $cache->fetch($cacheKey);
+        // If we have been here before, return early.
+        if ($cache->contains($cacheKey)) {
+            $venues = $cache->fetch($cacheKey);
+            return $venues;
         }
 
-        // return the JSON Object.
-        return json_encode($spots);
+        $url = 'https://api.foursquare.com/v2/venues/search?';
+        $requestParams = array(
+            'v'             => '20120610',
+            'intent'        => 'browse',
+            'radius'        => '9500',
+            'limit'         => '100',
+            'll'            => "$lat,$lng",
+            'categoryId'    => implode(',', $this->categories),
+            'client_id'     => $this->key,
+            'client_secret' => $this->secret
+        );
+        $url      .= http_build_query($requestParams);
+        $response = json_decode(file_get_contents($url), true);
+
+        $venues = array();
+        if ($response['meta']['code'] == 200) {
+            foreach ($response['response'] as $responseVenues) {
+                foreach ($responseVenues as $venue) {
+
+                    // Check if the venue has more than 10 check-ins ever, if not then skip it.
+                    if (!$venue['stats']['checkinsCount'] > 10) {
+                        continue;
+                    }
+
+                    $venues[] = array(
+                        'id'          => isset($venue['id']) ? $venue['id'] : '',
+                        'name'        => isset($venue['name']) ? $venue['name'] : '',
+                        'latitude'    => isset($venue['location']['lat']) ? $venue['location']['lat'] : '',
+                        'longitude'   => isset($venue['location']['lng']) ? $venue['location']['lng'] : '',
+                        'address'     => isset($venue['location']['address']) ? $venue['location']['address'] : '',
+                        'crossStreet' => isset($venue['location']['crossStreet']) ? $venue['location']['crossStreet'] : '',
+                        'city'        => isset($venue['location']['city']) ? $venue['location']['city'] : '',
+                        'state'       => isset($venue['location']['state']) ? $venue['location']['state'] : '',
+                        'postalCode'  => isset($venue['location']['postalCode']) ? $venue['location']['postalCode'] : '',
+                        'country'     => isset($venue['location']['country']) ? $venue['location']['country'] : '',
+                        'url'         => isset($venue['url']) ? $venue['url'] : '',
+                        'people'      => isset($venue['hereNow']['count']) ? $venue['hereNow']['count'] : '',
+                        'categories'  => $venue['categories'],
+                        'contact'     => $venue['contact'],
+                        'stats'       => $venue['stats']
+                    );
+                }
+            }
+        }
+
+        $result = array('venues' => $venues);
+
+        // Store the array in the Cache.
+        $cache->save($cacheKey, $result, 600);
+
+        return $result;
+
     }
 
 }
